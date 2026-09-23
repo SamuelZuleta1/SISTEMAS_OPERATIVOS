@@ -12,8 +12,15 @@ from algoritmos import Proceso, Segmento, simular
 
 COLUMNAS = ["ID", "Llegada", "CPU", "Prioridad"]
 FILAS_INICIALES = 3
-PALETA = px.colors.qualitative.Plotly + px.colors.qualitative.Set2 + px.colors.qualitative.Pastel
-VERDE = "#b7e4c7"
+# Tonos 400: con texto oscuro encima se leen bien en tema claro y oscuro
+PALETA = [
+    "#60A5FA", "#FBBF24", "#34D399", "#A78BFA", "#F87171", "#22D3EE",
+    "#F472B6", "#A3E635", "#FB923C", "#818CF8", "#2DD4BF", "#E879F9",
+]
+TEXTO_BARRA = "#0F172A"
+REJILLA = "rgba(148, 163, 184, 0.25)"
+RESALTADO = "background-color: #BBF7D0; color: #14532D; font-weight: 600"
+COLORES_METRICAS = ["#2563EB", "#F59E0B"]
 
 
 def tabla_vacia(filas: int) -> pd.DataFrame:
@@ -69,7 +76,7 @@ def validar(df: pd.DataFrame) -> tuple[list[Proceso], list[str]]:
     return procesos, errores
 
 
-def diagrama_gantt(titulo: str, segmentos: list[Segmento], colores: dict[str, str], orden_ids: list[str]) -> go.Figure:
+def diagrama_gantt(segmentos: list[Segmento], colores: dict[str, str], orden_ids: list[str]) -> go.Figure:
     """Gantt con barras horizontales: una fila por proceso, eje X = tiempo."""
     fig = go.Figure()
     for pid in orden_ids:
@@ -81,22 +88,31 @@ def diagrama_gantt(titulo: str, segmentos: list[Segmento], colores: dict[str, st
                 x=[fin - inicio for _, inicio, fin in propios],
                 base=[inicio for _, inicio, _ in propios],
                 orientation="h",
-                marker=dict(color=colores[pid], line=dict(color="#333", width=1)),
+                marker=dict(color=colores[pid], line=dict(width=0), cornerradius=4),
                 text=[f"{inicio}–{fin}" for _, inicio, fin in propios],
                 textposition="inside",
                 insidetextanchor="middle",
+                textfont=dict(color=TEXTO_BARRA, size=12),
                 hovertemplate=f"{pid}: %{{base}} → %{{customdata}}<extra></extra>",
                 customdata=[fin for _, _, fin in propios],
             )
         )
     fin_total = max(f for _, _, f in segmentos)
     fig.update_layout(
-        title=titulo,
         barmode="overlay",
-        height=120 + 45 * len(orden_ids),
-        margin=dict(l=10, r=10, t=50, b=40),
-        xaxis=dict(title="Tiempo", range=[0, fin_total], dtick=1 if fin_total <= 40 else None),
-        yaxis=dict(autorange="reversed", title=None, categoryorder="array", categoryarray=orden_ids),
+        bargap=0.3,
+        height=90 + 42 * len(orden_ids),
+        margin=dict(l=10, r=10, t=10, b=40),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            title="Tiempo",
+            range=[0, fin_total],
+            dtick=1 if fin_total <= 40 else None,
+            gridcolor=REJILLA,
+            zeroline=False,
+        ),
+        yaxis=dict(autorange="reversed", title=None, categoryorder="array", categoryarray=orden_ids, showgrid=False),
         showlegend=False,
     )
     return fig
@@ -132,16 +148,17 @@ if "tabla" not in st.session_state:
     st.session_state.version = 0
     st.session_state.resultados = None
 
-col_tabla, col_opciones = st.columns([3, 1])
+col_tabla, col_opciones = st.columns([3, 1], gap="medium")
 
-with col_tabla:
+with col_tabla.container(border=True):
     st.subheader("Procesos")
     editada = st.data_editor(
         st.session_state.tabla,
         key=f"editor_{st.session_state.version}",
         num_rows="dynamic",
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
+        placeholder="",
         column_config={
             "ID": st.column_config.TextColumn("ID", help="Nombre del proceso, p. ej. P1"),
             "Llegada": st.column_config.NumberColumn("Llegada", min_value=0, step=1, format="%d"),
@@ -151,22 +168,23 @@ with col_tabla:
             ),
         },
     )
-    b1, b2, _ = st.columns([1, 1, 3])
-    if b1.button("+ Agregar proceso", use_container_width=True):
+    b1, b2, _ = st.columns([1, 1, 2])
+    if b1.button("Agregar proceso", icon=":material/add:", width="stretch"):
         st.session_state.tabla = pd.concat([editada, tabla_vacia(1)], ignore_index=True)
         st.session_state.version += 1
         st.rerun()
-    if b2.button("Limpiar todo", use_container_width=True):
+    if b2.button("Limpiar todo", icon=":material/delete_sweep:", width="stretch"):
         st.session_state.tabla = tabla_vacia(FILAS_INICIALES)
         st.session_state.version += 1
         st.session_state.resultados = None
         st.rerun()
 
-with col_opciones:
+with col_opciones.container(border=True):
     st.subheader("Opciones")
     quantum = st.number_input("Quantum (Round Robin)", min_value=1, value=2, step=1)
+    st.caption("En Prioridad, el número menor se atiende primero. Los empates se resuelven por llegada y luego por orden en la tabla.")
 
-if st.button("▶ Ejecutar simulación", type="primary", use_container_width=True):
+if st.button("Ejecutar simulación", type="primary", icon=":material/play_arrow:", width="stretch"):
     procesos, errores = validar(editada)
     if errores:
         st.session_state.resultados = None
@@ -180,40 +198,41 @@ if st.session_state.resultados:
     procesos, resultados = st.session_state.resultados
     orden_ids = [p.id for p in procesos]
     colores = {pid: PALETA[i % len(PALETA)] for i, pid in enumerate(orden_ids)}
-
-    st.divider()
-    st.header("Resultados")
-    st.markdown(
-        " ".join(
-            f"<span style='background:{colores[pid]};padding:2px 10px;border-radius:4px;"
-            f"margin-right:6px;color:#000'>{pid}</span>"
-            for pid in orden_ids
-        ),
-        unsafe_allow_html=True,
-    )
-
-    resumen = []
-    for nombre, (segmentos, metricas) in resultados.items():
-        st.plotly_chart(diagrama_gantt(nombre, segmentos, colores, orden_ids), use_container_width=True)
-        st.dataframe(tabla_con_promedios(metricas), hide_index=True)
-        resumen.append(
+    metricas_prom = ["T. sistema promedio", "T. espera promedio"]
+    comparativa = pd.DataFrame(
+        [
             {
                 "Algoritmo": nombre,
                 "T. sistema promedio": metricas["T. sistema"].mean(),
                 "T. espera promedio": metricas["T. espera"].mean(),
             }
-        )
+            for nombre, (_, metricas) in resultados.items()
+        ]
+    )
 
     st.divider()
+    st.header("Resultados")
+
+    for col, metrica in zip(st.columns(2), metricas_prom):
+        minimo = comparativa[metrica].min()
+        mejores = comparativa.loc[comparativa[metrica] == minimo, "Algoritmo"]
+        with col.container(border=True):
+            st.metric(f"Menor {metrica}", _fmt(minimo))
+            st.caption(" · ".join(mejores))
+
+    for tab, (nombre, (segmentos, metricas)) in zip(st.tabs(list(resultados)), resultados.items()):
+        with tab:
+            st.plotly_chart(diagrama_gantt(segmentos, colores, orden_ids), width="stretch", key=f"gantt_{nombre}")
+            st.dataframe(tabla_con_promedios(metricas), hide_index=True, width="stretch", placeholder="")
+
     st.subheader("Comparación de algoritmos")
-    comparativa = pd.DataFrame(resumen)
-    st.dataframe(
-        comparativa.style.format(_fmt, subset=["T. sistema promedio", "T. espera promedio"]).highlight_min(
-            subset=["T. sistema promedio", "T. espera promedio"], color=VERDE
-        ),
+    col_comp, col_graf = st.columns([2, 3], gap="medium")
+    col_comp.dataframe(
+        comparativa.style.format(_fmt, subset=metricas_prom).highlight_min(subset=metricas_prom, props=RESALTADO),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
+    col_comp.caption("En verde, el menor promedio de cada columna.")
 
     barras = comparativa.melt(id_vars="Algoritmo", var_name="Métrica", value_name="Tiempo")
     fig = px.bar(
@@ -223,7 +242,16 @@ if st.session_state.resultados:
         color="Métrica",
         barmode="group",
         text=barras["Tiempo"].map(_fmt),
-        title="Promedios por algoritmo",
+        color_discrete_sequence=COLORES_METRICAS,
     )
-    fig.update_layout(yaxis_title="Tiempo promedio", legend_title=None)
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_traces(marker_cornerradius=4, textposition="outside", cliponaxis=False)
+    fig.update_layout(
+        yaxis_title="Tiempo promedio",
+        xaxis_title=None,
+        legend=dict(title=None, orientation="h", y=1.12, x=0),
+        margin=dict(l=10, r=10, t=40, b=10),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        yaxis=dict(gridcolor=REJILLA),
+    )
+    col_graf.plotly_chart(fig, width="stretch")
