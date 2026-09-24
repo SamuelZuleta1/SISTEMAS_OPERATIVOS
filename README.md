@@ -3,3 +3,7 @@
 **Autor:** Samuel Zuleta — UTP, Sistemas Operativos
 
 
+
+# LINK VISUALIZACIÓN
+
+https://simulador-despacho-utp.streamlit.app/
